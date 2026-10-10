@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.agents/skills/
+.claude/skills/
+.beoma-skills-state.json
+.env

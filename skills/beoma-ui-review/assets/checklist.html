@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UI — проверка и исправления</title>
+<style>
+:root{color-scheme:light dark;--bg:#f6f7f8;--surface:#fff;--ink:#17202b;--muted:#526071;--line:#ccd4de;--accent:#204cb0;--ok:#16643e}
+@media(prefers-color-scheme:dark){:root{--bg:#15191f;--surface:#20262e;--ink:#eef1f5;--muted:#b3bfcc;--line:#56616f;--accent:#9cbbff;--ok:#8bdbb0}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,sans-serif}main{max-width:1160px;margin:auto;padding:28px 24px}h1{font-size:28px;line-height:1.25;margin:8px 0 12px}h2{font-size:21px}h3{font-size:18px;margin:0}p{margin:8px 0}a{color:var(--accent);overflow-wrap:anywhere}button,input,select,textarea{font:inherit;color:inherit}button,select,input[type=search],textarea{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px}button{cursor:pointer}input[type=checkbox]{width:18px;height:18px;vertical-align:middle;accent-color:var(--accent)}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}.muted{color:var(--muted)}.toolbar{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:24px 0}.toolbar label{display:grid;gap:4px}.toolbar input[type=search]{width:min(320px,100%)}.summary{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:14px 0;display:flex;gap:24px;flex-wrap:wrap}.issue{padding:18px 0;border-bottom:1px solid var(--line)}.row{display:flex;gap:12px;align-items:start;justify-content:space-between;flex-wrap:wrap}.meta{font-size:14px;color:var(--muted)}.status{font-weight:600}.verified{color:var(--ok)}details{margin:12px 0}summary{cursor:pointer;font-weight:600}.body{padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;margin-top:10px}dl{margin:0}dt{font-weight:600;margin-top:12px}dd{margin:3px 0;white-space:pre-wrap;overflow-wrap:anywhere}.compare{display:grid;grid-template-columns:1fr 1fr;gap:16px}.compare img{display:block;width:100%;height:auto;border:1px solid var(--line)}figure{margin:0}figcaption{font-weight:600;margin:8px 0}.note{display:grid;gap:4px;margin-top:14px}.note textarea{width:100%;resize:vertical;min-height:70px}.coverage{display:grid;gap:10px}.coverage li{padding-bottom:10px;border-bottom:1px solid var(--line)}.tag{display:inline-block;padding:2px 7px;border:1px solid var(--line);border-radius:4px;font-size:13px}.hidden{display:none}#feedback{min-height:24px}progress{width:240px;max-width:100%;accent-color:var(--ok)}@media(max-width:600px){main{padding:20px 14px}h1{font-size:24px}.compare{grid-template-columns:1fr}.toolbar label{width:100%}.toolbar input[type=search]{width:100%}}
+</style>
+</head>
+<body><main>
+<p class="muted">Beoma · аудит → исправление → повторная проверка</p>
+<h1 id="title"></h1><p id="run" class="muted"></p>
+<details open><summary>Охват и ограничения</summary><ul id="scope"></ul></details>
+<div class="summary" aria-live="polite"><strong id="progress-text"></strong><progress id="progress" aria-label="Подтверждённые дефекты с успешной повторной проверкой"></progress><span id="remaining"></span></div>
+<p class="muted">«В плане» — ваш выбор задачи. «Проверено» — результат повторного прогона агентом с доказательствами. Выбор и заметки сохраняются только в этом браузере; экспортируйте их, чтобы передать агенту. После обновления отчёта перезагрузите страницу.</p>
+<div class="toolbar">
+<label>Поиск<input id="search" type="search" placeholder="ID, экран или замечание"></label>
+<label>Статус<select id="status"><option value="all">Все</option><option value="open">Открыто</option><option value="in_progress">Исправляется</option><option value="fixed_pending_verification">Исправлено, ждёт проверки</option><option value="verified">Проверено</option><option value="blocked">Заблокировано</option><option value="deferred">Отложено</option></select></label>
+<label>Приоритет<select id="priority"><option value="all">Все</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select></label>
+<button id="export" type="button">Экспорт выбора и заметок</button>
+</div>
+<p id="feedback" role="status"></p><section id="issues" aria-label="Чек-лист находок"></section>
+<h2>Фактическое покрытие проверки</h2><ul id="coverage" class="coverage"></ul>
+</main>
+<script id="report-data" type="application/json">__REPORT_DATA__</script>
+<script>
+'use strict';
+const report=JSON.parse(document.getElementById('report-data').textContent);
+const labels={open:'Открыто',in_progress:'Исправляется',fixed_pending_verification:'Исправлено, ждёт проверки',verified:'Проверено',blocked:'Заблокировано',deferred:'Отложено'};
+const kinds={defect:'Подтверждённый дефект',hypothesis:'Гипотеза',recommendation:'Рекомендация'};
+const results={pass:'Пройдено',fail:'Найден дефект',not_checked:'Не проверено',not_applicable:'Не применимо'};
+const key='beoma-ui-review:'+report.run_id;
+let decisions={...report.review_decisions};
+try{const saved=JSON.parse(localStorage.getItem(key)||'{}');for(const item of report.issues){const d=saved[item.id];if(d&&typeof d.selected==='boolean'&&typeof d.note==='string')decisions[item.id]={selected:d.selected,note:d.note};}}catch{}
+function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}
+function save(){try{localStorage.setItem(key,JSON.stringify(decisions));}catch{document.getElementById('feedback').textContent='Хранилище браузера недоступно. Экспортируйте выбор, чтобы сохранить его.';}}
+function link(value){if(typeof value!=='string')return null;if(/^https?:\/\//i.test(value))return value;if(/^[a-z0-9_.-]+(?:\/[a-z0-9_.-]+)*$/i.test(value)&&!value.split('/').includes('..'))return value;return null;}
+function evidence(items,caption){const box=node('div');box.append(node('p',caption));for(const text of items||[]){const url=link(text);if(url){const a=node('a',text);a.href=url;a.target='_blank';a.rel='noopener noreferrer';box.append(a);if(!/^https?:/i.test(url)&&/\.(png|jpe?g|webp)$/i.test(url)){const img=node('img');img.src=url;img.alt=caption+' — '+text;img.loading='lazy';box.append(img);}}else box.append(node('p',text));}return box;}
+document.getElementById('title').textContent=report.title;
+document.getElementById('run').textContent='Прогон: '+report.run_id;
+for(const item of report.scope)document.getElementById('scope').append(node('li',item));
+const defects=report.issues.filter(i=>i.kind==='defect');const done=defects.filter(i=>i.status==='verified').length;
+document.getElementById('progress-text').textContent=done+' из '+defects.length+' дефектов исправлено и проверено';
+const progress=document.getElementById('progress');progress.max=Math.max(defects.length,1);progress.value=done;
+document.getElementById('remaining').textContent=defects.filter(i=>i.status==='blocked').length+' заблокировано · '+defects.filter(i=>i.status==='fixed_pending_verification').length+' ждёт проверки';
+for(const item of [...report.issues].sort((a,b)=>a.priority.localeCompare(b.priority)||a.id.localeCompare(b.id))){
+ const article=node('article',undefined,'issue');article.dataset.status=item.status;article.dataset.priority=item.priority;article.dataset.search=[item.id,item.title,item.location,item.observation,item.kind].join(' ').toLowerCase();
+ const row=node('div',undefined,'row');const heading=node('div');heading.append(node('h3',item.id+' · '+item.title),node('p',item.location,'meta'),node('span',item.priority+' · '+kinds[item.kind],'tag'));row.append(heading,node('span',labels[item.status],'status'+(item.status==='verified'?' verified':'')));article.append(row);
+ const verified=node('label');const checked=node('input');checked.type='checkbox';checked.disabled=true;checked.checked=item.status==='verified';verified.append(checked,document.createTextNode(' Исправлено и перепроверено'));article.append(verified);
+ const detail=node('details');detail.append(node('summary','Доказательства, исправление и повторная проверка'));const body=node('div',undefined,'body');const dl=node('dl');for(const [field,label] of [['observation','Наблюдение'],['expected','Ожидается'],['basis','Основание'],['impact','Влияние'],['fix','План исправления'],['retest','Критерий повторной проверки'],['change','Что изменено'],['reason','Ограничение']])if(item[field])dl.append(node('dt',label),node('dd',item[field]));body.append(dl);
+ const compare=node('div',undefined,'compare');compare.append(evidence(item.before,'До'));if(item.after?.length)compare.append(evidence(item.after,'После'));body.append(compare);
+ if(item.verification){body.append(node('p','Повторная проверка: '+item.verification.result),node('p',item.verification.method),node('p',item.verification.environment),evidence(item.verification.evidence,'Доказательства повторного прогона'));}
+ if(item.history?.length){const history=node('ul');for(const h of item.history)history.append(node('li',h.at+' · '+(labels[h.from]||h.from)+' → '+(labels[h.to]||h.to)));body.append(history);}
+ detail.append(body);article.append(detail);
+ const decision=decisions[item.id]||{selected:item.kind==='defect'&&item.status!=='deferred',note:''};decisions[item.id]=decision;
+ const plan=node('label');const selected=node('input');selected.type='checkbox';selected.checked=decision.selected;selected.addEventListener('change',()=>{decision.selected=selected.checked;save();});plan.append(selected,document.createTextNode(' В плане исправлений'));article.append(plan);
+ const notes=node('label',undefined,'note');notes.append(node('span','Заметка для агента'));const textarea=node('textarea');textarea.value=decision.note;textarea.addEventListener('input',()=>{decision.note=textarea.value;save();});notes.append(textarea);article.append(notes);document.getElementById('issues').append(article);
+}
+if(!report.issues.length)document.getElementById('issues').append(node('p','В указанном охвате находок не обнаружено. Смотрите выполненные и непроверенные проверки ниже.'));
+for(const item of report.coverage){const li=node('li');li.append(node('strong',item.check+' — '+results[item.result]),node('p',item.evidence,'muted'));document.getElementById('coverage').append(li);}
+function filter(){const q=document.getElementById('search').value.toLowerCase();const status=document.getElementById('status').value;const priority=document.getElementById('priority').value;let visible=0;for(const item of document.querySelectorAll('.issue')){const hide=!item.dataset.search.includes(q)||(status!=='all'&&item.dataset.status!==status)||(priority!=='all'&&item.dataset.priority!==priority);item.classList.toggle('hidden',hide);if(!hide)visible++;}document.getElementById('feedback').textContent='Показано находок: '+visible;}
+for(const id of ['search','status','priority'])document.getElementById(id).addEventListener('input',filter);
+document.getElementById('export').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({run_id:report.run_id,review_decisions:decisions},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=node('a');a.href=url;a.download='ui-review-decisions.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);document.getElementById('feedback').textContent='Экспортирован выбор и заметки. Статусы проверки не изменялись.';});
+</script>
+</body></html>
